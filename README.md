@@ -1,106 +1,368 @@
-<div align="center">
+## SQL Injection in JavaScript Applications
 
-![Cheat Notes Banner](https://capsule-render.vercel.app/api?type=waving&color=0d1117&height=200&section=header&text=Cheat%20Notes%20For%20Dummies&fontSize=48&fontColor=58a6ff&animation=fadeIn&fontAlignY=38&desc=Open-Source%20Cheat%20Sheets%20for%20Everyone&descSize=18&descAlignY=62&descColor=8b949e)
 
-[![GitHub Stars](https://img.shields.io/github/stars/cheatnotes?style=flat-square&logo=github&logoColor=white&color=181717&labelColor=181717&label=Stars)](https://github.com/cheatnotes)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square&logo=opensourceinitiative&logoColor=white&color=238636&labelColor=238636)](https://opensource.org/licenses/MIT)
-[![Website](https://img.shields.io/badge/Website-cheatnotes.github.io-blue?style=flat-square&logo=githubpages&logoColor=white&color=0969da&labelColor=0969da)](https://cheatnotes.github.io)
-[![GitHub Followers](https://img.shields.io/github/followers/cheatnotes?style=flat-square&logo=github&logoColor=white&color=181717&labelColor=181717&label=Followers)](https://github.com/orgs/cheatnotes/followers)
-</div>
+### 1. VULNERABLE FUNCTIONS & PATTERNS
 
----
+#### **Direct String Concatenation**
+```javascript
+// VULNERABLE - String concatenation
+const query = "SELECT * FROM users WHERE username = '" + username + "'";
+const query = `SELECT * FROM users WHERE id = ${userId}`;
+const query = "SELECT * FROM products WHERE name = '" + req.body.name + "'";
 
-## 📖 What is Cheat Notes?
+// VULNERABLE - Template literals with interpolation
+const query = `SELECT * FROM users WHERE email = '${email}' AND password = '${password}'`;
 
-**Cheat Notes For Dummies** is an open-source organization creating quick, beginner-friendly reference guides for tech concepts, tools, and languages.
+// VULNERABLE - concat() method
+const query = "SELECT * FROM users WHERE role = '".concat(role, "'");
+```
 
-**Our mission:** One cheat sheet for every major technology.
+#### **Database-Specific Vulnerable Functions**
 
-> *Learn fast. Reference faster. Build smarter.*
+**MySQL (mysql/mysql2 packages)**
+```javascript
+// VULNERABLE
+connection.query("SELECT * FROM users WHERE id = " + userId, callback);
+connection.query(`SELECT * FROM products WHERE category = '${category}'`);
+connection.execute("SELECT * FROM users WHERE email = '" + email + "'");
 
-### Who is this for?
+// VULNERABLE - Multiple statements enabled
+const connection = mysql.createConnection({
+  multipleStatements: true  // Allows stacked queries!
+});
+```
 
-- 🎓 **Students** — quick exam prep and syntax reference
-- 💻 **Developers** — fast command and API lookup
-- 🔬 **Researchers** — technical quick reference
-- 🧑‍💼 **Professionals** — just-in-time learning
+**PostgreSQL (pg package)**
+```javascript
+// VULNERABLE
+client.query("SELECT * FROM users WHERE name = '" + name + "'");
+pool.query(`SELECT * FROM items WHERE id = ${itemId}`);
 
----
+// VULNERABLE - Manual escaping (insufficient)
+const escaped = input.replace(/'/g, "''"); // NOT SAFE!
+client.query(`SELECT * FROM users WHERE email = '${escaped}'`);
+```
 
-## 📚 What We Cover
+**SQLite (sqlite3 package)**
+```javascript
+// VULNERABLE
+db.run("INSERT INTO users VALUES ('" + username + "', '" + email + "')");
+db.get(`SELECT * FROM users WHERE id = ${userId}`);
+db.all("SELECT * FROM posts WHERE title LIKE '%" + searchTerm + "%'");
+```
 
-| Icon | Category | Topics |
-|------|----------|--------|
-| 🗄️ | **Databases** | SQL, NoSQL, ORMs, queries |
-| 💻 | **Computer Science** | Algorithms, data structures, complexity |
-| 🔢 | **Mathematics** | Linear algebra, calculus, statistics |
-| 🤖 | **AI & ML** | Machine learning, deep learning, NLP, LLMs |
-| 🌐 | **Networking** | TCP/IP, DNS, HTTP, protocols |
-| 🔒 | **Cybersecurity** | Pentesting, hardening, tools |
-| 🐧 | **Linux & OS** | Bash, commands, system admin |
-| 🖥️ | **Hardware** | CPU, memory, embedded systems |
-| 🧑‍💻 | **Programming** | Python, C++, Rust, JavaScript, Go, Java |
-| 🌍 | **Web Dev** | HTML/CSS, React, APIs, Next.js |
-| ☁️ | **Cloud & DevOps** | AWS, Docker, Kubernetes, CI/CD |
+**MongoDB (NoSQL but relevant)**
+```javascript
+// VULNERABLE - NoSQL injection
+const query = { username: req.body.username, password: req.body.password };
+db.collection('users').find(query);
 
----
+// VULNERABLE - $where operator
+db.collection('users').find({ $where: `this.name == '${name}'` });
+```
 
-## 🗄️ Current Repositories
+#### **ORM Vulnerabilities**
 
-| Repository | Description |
-|------------|-------------|
-| [sql-cheatsheet](https://github.com/cheatnotes/sql-cheatsheet) | SQL fundamentals, joins, subqueries, and window functions |
+**Sequelize**
+```javascript
+// VULNERABLE - Raw queries
+sequelize.query("SELECT * FROM users WHERE id = " + userId);
+sequelize.query(`SELECT * FROM items WHERE name = '${itemName}'`);
 
-*More coming soon! See [categories](#-what-we-cover) above.*
+// VULNERABLE - Literals
+sequelize.literal(`COUNT(*) FILTER (WHERE status = '${status}')`);
 
----
+// SAFE - Parameterized queries
+sequelize.query("SELECT * FROM users WHERE id = ?", {
+  replacements: [userId]
+});
+```
 
-## 🤝 How to Contribute
+**Knex.js**
+```javascript
+// VULNERABLE - Raw
+knex.raw("SELECT * FROM users WHERE id = " + userId);
+knex.raw(`DELETE FROM products WHERE id = ${productId}`);
 
-Want to add a cheat sheet? Here's how:
+// SAFE - Parameterized
+knex.raw("SELECT * FROM users WHERE id = ?", [userId]);
+knex('users').where('id', userId);
+```
 
-1. **Fork** the repository
-2. **Create a branch**: `git checkout -b feature/add-topic`
-3. **Write your cheat sheet** in Markdown (`.md`)
-4. **Commit**: `git commit -m "Add: topic cheat sheet"`
-5. **Push and open a Pull Request**
+**TypeORM**
+```javascript
+// VULNERABLE
+getConnection().query("SELECT * FROM users WHERE name = '" + name + "'");
+repository.query(`SELECT * FROM posts WHERE author = '${author}'`);
+```
 
-### Guidelines
+### 2. INJECTION POINTS
 
-✅ **Do:**
-- Keep it concise — reference guides, not textbooks
-- Use clear formatting and code blocks
-- Include practical examples
-- Credit sources when applicable
+#### **User Input Vectors**
+```javascript
+// URL Parameters
+app.get('/user/:id', (req, res) => {
+  const id = req.params.id;  // INJECTION POINT
+});
 
----
+// Query Strings
+app.get('/search', (req, res) => {
+  const query = req.query.q;  // INJECTION POINT
+});
 
-## 📜 License
+// POST Body
+app.post('/login', (req, res) => {
+  const { username, password } = req.body;  // INJECTION POINTS
+});
 
-All repositories are licensed under the **[MIT License](https://opensource.org/licenses/MIT)**.  
-You're free to use, fork, modify, and share.
+// Headers
+const userAgent = req.headers['user-agent'];  // INJECTION POINT
+const referer = req.headers['referer'];  // INJECTION POINT
 
----
+// Cookies
+const sessionId = req.cookies.sessionId;  // INJECTION POINT
 
-## 🔗 Connect With Us
+// File Uploads
+const filename = req.file.originalname;  // INJECTION POINT
+```
 
-<div align="center">
+#### **Dynamic Query Building**
+```javascript
+// VULNERABLE - Dynamic WHERE clauses
+function buildQuery(filters) {
+  let query = "SELECT * FROM products WHERE 1=1";
+  
+  if (filters.category) {
+    query += " AND category = '" + filters.category + "'"; // INJECTION
+  }
+  if (filters.price) {
+    query += " AND price <= " + filters.price; // INJECTION
+  }
+  return query;
+}
 
-| Platform | Link |
-|----------|------|
-| 🌐 Website | [cheatnotes.github.io](https://cheatnotes.github.io) |
-| 💻 GitHub | [@cheatnotes](https://github.com/cheatnotes) |
-| 📧 Email | [awjunaid@proton.me](mailto:awjunaid@proton.me) |
-| 👤 Maintainer | [@aw-junaid](https://github.com/aw-junaid) |
+// VULNERABLE - Dynamic ORDER BY
+const sortField = req.query.sort; // INJECTION POINT
+const query = `SELECT * FROM users ORDER BY ${sortField}`;
 
-</div>
+// VULNERABLE - Dynamic table/column names
+const tableName = req.params.table; // INJECTION POINT
+const query = `SELECT * FROM ${tableName}`;
+```
 
----
+### 3. HOW TO FIND SQL INJECTION VULNERABILITIES
 
-<div align="center">
+#### **Manual Code Review Patterns**
 
-![Footer](https://capsule-render.vercel.app/api?type=waving&color=0d1117&height=100&section=footer)
+**Search for dangerous patterns:**
+```bash
+# Grep for string concatenation in queries
+grep -r "SELECT.*\+" .
+grep -r "INSERT.*\+" .
+grep -r "DELETE.*\+" .
+grep -r "UPDATE.*\+" .
 
-*Made with ❤️ for the community · Cheat Notes For Dummies © 2025–2026*
+# Find template literals with variables in queries
+grep -r "\`SELECT.*\$\{" .
+grep -r "\`INSERT.*\$\{" .
 
-</div>
+# Find raw query execution
+grep -r "\.query(" .
+grep -r "\.execute(" .
+grep -r "\.raw(" .
+
+# Find dangerous concatenation methods
+grep -r "\.concat(" .
+grep -r "util\.format(" .
+```
+
+#### **Automated Scanning Tools**
+```javascript
+// ESLint Plugin for SQL Injection detection
+npm install eslint-plugin-sql-injection
+
+// Example .eslintrc.json
+{
+  "plugins": ["sql-injection"],
+  "rules": {
+    "sql-injection/no-sql-injection": "error"
+  }
+}
+
+// Static Analysis Tools
+// - Snyk: npm install -g snyk && snyk test
+// - npm audit: npm audit
+// - OWASP Dependency Check
+```
+
+#### **Dynamic Testing Payloads**
+
+**Basic Detection Payloads:**
+```sql
+' OR '1'='1
+' OR '1'='1' --
+" OR "1"="1
+' OR '1'='1' /*
+' OR 1=1 --
+admin' --
+1' OR '1'='1
+' UNION SELECT NULL--
+' UNION SELECT NULL,NULL--
+' UNION SELECT NULL,NULL,NULL--
+```
+
+**Time-Based Blind SQLi:**
+```sql
+' OR SLEEP(5)--
+' OR pg_sleep(5)--
+' WAITFOR DELAY '0:0:5'--
+' AND (SELECT * FROM (SELECT(SLEEP(5)))a)--
+```
+
+**Error-Based Detection:**
+```sql
+' OR 1=CONVERT(int,@@version)--
+' AND 1=CAST(@@version AS int)--
+' OR extractvalue(1,concat(0x7e,database()))--
+```
+
+#### **Black-Box Testing Methodology**
+
+```javascript
+// 1. Identify all input points
+const injectionPoints = [
+  document.forms,           // Form inputs
+  window.location.search,   // URL parameters
+  document.cookie,          // Cookies
+  localStorage,             // Local storage
+  sessionStorage,           // Session storage
+  fetch/XHR requests       // API calls
+];
+
+// 2. Test each point with SQLi payloads
+const testPayloads = [
+  "'", '"', '`', ';', '--', '/*',
+  "' OR '1'='1", "admin' --",
+  "' UNION SELECT 1--"
+];
+
+// 3. Monitor responses for:
+// - Database errors
+// - Different response lengths
+// - Response time delays
+// - Blind boolean behavior
+```
+
+### 4. SECURE CODING PATTERNS (Defense)
+
+```javascript
+// PARAMETERIZED QUERIES (Best Practice)
+// MySQL
+connection.execute(
+  'SELECT * FROM users WHERE username = ? AND password = ?',
+  [username, password]
+);
+
+// PostgreSQL
+client.query(
+  'SELECT * FROM users WHERE email = $1',
+  [email]
+);
+
+// SQLite
+db.get(
+  'SELECT * FROM users WHERE id = ?',
+  [userId]
+);
+
+// STORED PROCEDURES
+connection.query('CALL GetUser(?)', [userId]);
+
+// INPUT VALIDATION
+const Joi = require('joi');
+const schema = Joi.object({
+  username: Joi.string().alphanum().min(3).max(30),
+  id: Joi.number().integer().positive()
+});
+
+// ESCAPING (Last resort, parameterized queries preferred)
+const mysql = require('mysql');
+const escaped = mysql.escape(userInput); // MySQL only
+
+// WHITELISTING for dynamic values
+const ALLOWED_COLUMNS = ['id', 'username', 'email', 'created_at'];
+const sortBy = ALLOWED_COLUMNS.includes(req.query.sort) 
+  ? req.query.sort 
+  : 'id';
+
+// ORM SAFE METHODS
+User.findAll({
+  where: {
+    username: username // Automatically parameterized
+  }
+});
+```
+
+### 5. COMMON VULNERABLE NODE.JS FRAMEWORK PATTERNS
+
+**Express.js**
+```javascript
+// VULNERABLE
+app.get('/user/:id', (req, res) => {
+  db.query(`SELECT * FROM users WHERE id = ${req.params.id}`);
+});
+
+// SAFE
+app.get('/user/:id', (req, res) => {
+  db.query('SELECT * FROM users WHERE id = ?', [req.params.id]);
+});
+```
+
+**NestJS**
+```javascript
+// VULNERABLE
+@Get(':id')
+findOne(@Param('id') id: string) {
+  return this.connection.query(`SELECT * FROM users WHERE id = ${id}`);
+}
+
+// SAFE
+@Get(':id')
+findOne(@Param('id') id: string) {
+  return this.userRepository.findOne({ where: { id } });
+}
+```
+
+### 6. DETECTION CHECKLIST
+
+```javascript
+const securityChecklist = {
+  codeReview: [
+    "No string concatenation in SQL queries",
+    "No template literals in SQL queries",
+    "All user input parameterized",
+    "No dynamic table/column names from input",
+    "Input validation on all user-supplied data",
+    "Least privilege database accounts",
+    "Stored procedures when possible"
+  ],
+  
+  runtimeProtection: [
+    "WAF (Web Application Firewall) configured",
+    "Database error messages suppressed",
+    "Query timeouts configured",
+    "Rate limiting on endpoints",
+    "SQL injection monitoring/alerting"
+  ],
+  
+  testing: [
+    "Automated SAST scanning",
+    "DAST scanning in CI/CD",
+    "Regular penetration testing",
+    "Fuzzing with SQLi payloads",
+    "Code review for new database queries"
+  ]
+};
+```
+
+Remember: **Never trust user input. Always use parameterized queries. Input validation is good, but parameterized queries are essential.**
